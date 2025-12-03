@@ -219,7 +219,7 @@ class FroniusManager:
             if device_id in self.devices:
                 device = self.devices.pop(device_id)
                 self.save_config()
-            logger.info(f"[DEL] Geraet entfernt: {device.name}")
+                logger.info(f"[DEL] Geraet entfernt: {device.name}")
                 return True
             return False
     
