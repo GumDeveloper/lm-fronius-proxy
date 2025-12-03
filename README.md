@@ -9,37 +9,66 @@ Ein Python-Proxy für Raspberry Pi, der mehrere Fronius-Wechselrichter gleichzei
 - **REST-API**: Einfache Geräteverwaltung über HTTP-Endpoints
 - **CORS-Bypass**: Löst CORS-Probleme für Web-Apps
 - **Kiosk-Modus**: Automatischer Vollbild-Start mit Chromium
-- **Persistente Config**: Geräte-Konfiguration wird gespeichert
+- **Default-Konfiguration**: 192.168.200.51 ist voreingestellt
 
-## Schnellstart
+## Schnellstart (One-Click Setup)
 
-### 1. Repository klonen
+### Vorbereitung
+
+1. **USB-Stick/Verzeichnis** auf dem Raspberry Pi Desktop vorbereiten:
+   ```
+   USB-Verzeichnis/
+   ├── web/                    ← Flutter Web Build (von deinem PC kopieren)
+   ├── check-requirements.sh   ← Von GitHub (oder USB)
+   └── setup.sh                ← Von GitHub (oder USB)
+   ```
+
+2. **Oder direkt klonen** (wenn Internet vorhanden):
+   ```bash
+   cd ~/Desktop
+   mkdir lademeyer-setup
+   cd lademeyer-setup
+   
+   # Repo klonen
+   git clone https://github.com/GumDeveloper/lm-fronius-proxy.git
+   
+   # web/ Ordner hierher kopieren (von USB)
+   cp -r /media/pi/USB-STICK/web ./
+   ```
+
+### Installation
 
 ```bash
-git clone https://github.com/GumDeveloper/lm-fronius-proxy.git
-cd lm-fronius-proxy
+cd ~/Desktop/lademeyer-setup
+
+# 1. Voraussetzungen pruefen
+chmod +x check-requirements.sh
+./check-requirements.sh
+
+# 2. Setup starten (macht alles automatisch!)
+chmod +x setup.sh
+sudo ./setup.sh
 ```
 
-### 2. Web-App hinzufügen (separat)
+Das `setup.sh` macht automatisch:
+1. Klont das Repo (falls nötig)
+2. Kopiert den web/ Ordner
+3. Installiert alles (Nginx, Python, Flask, etc.)
+4. **Prüft ob Fronius Daten liefert**
+5. Fragt ob Kiosk-Modus gestartet werden soll
 
-Die Flutter Web-App muss separat in den `web/` Ordner kopiert werden:
+## Was wird geprüft? (check-requirements.sh)
 
-```bash
-# Option A: Von USB-Stick
-cp -r /media/pi/USB-STICK/web ./web/
-
-# Option B: Per SCP vom Entwicklungs-PC
-scp -r user@pc:/pfad/zum/flutter/build/web ./web/
-```
-
-### 3. Installation starten
-
-```bash
-chmod +x install.sh
-sudo ./install.sh
-```
-
-Nach dem Neustart startet der Pi automatisch im Kiosk-Modus.
+| Check | Beschreibung |
+|-------|--------------|
+| Betriebssystem | Raspberry Pi OS erkannt? |
+| Root/Sudo | Berechtigungen vorhanden? |
+| Git | Installiert? |
+| Internet | GitHub erreichbar? |
+| Python3 | Installiert? |
+| curl | Installiert? |
+| web/ Ordner | Flutter Build vorhanden? |
+| Fronius | 192.168.200.51 erreichbar? (optional) |
 
 ## Was wird installiert?
 
@@ -68,28 +97,19 @@ sudo systemctl status lademeyer-proxy
 
 # Proxy-Logs
 sudo journalctl -u lademeyer-proxy -f
-
-# Detaillierter Status
-/opt/lademeyer/proxy-status.sh
 ```
 
 ## API-Endpoints
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
-| `/` | GET | Service-Info |
 | `/health` | GET | Health-Check |
 | `/devices` | GET | Alle Geräte auflisten |
 | `/devices` | POST | Gerät hinzufügen |
 | `/devices/<id>` | DELETE | Gerät entfernen |
-| `/devices/<id>/test` | POST | Verbindung testen |
 | `/data` | GET | Akkumulierte Daten aller Geräte |
-| `/data/<id>` | GET | Daten eines Geräts |
-| `/fronius?ip=X.X.X.X` | GET | Legacy-Einzelabfrage |
 
 ## Fronius-Geräte verwalten
-
-### Über die API
 
 ```bash
 # Gerät hinzufügen
@@ -102,25 +122,7 @@ curl http://localhost:5000/devices
 
 # Akkumulierte Daten abrufen
 curl http://localhost:5000/data
-
-# Gerät löschen
-curl -X DELETE http://localhost:5000/devices/fronius_1
 ```
-
-### Über die App
-
-1. SystemData V2 Screen öffnen
-2. Zahnrad-Button in der AppBar klicken
-3. IP eingeben und hinzufügen
-
-## URLs nach Installation
-
-| URL | Beschreibung |
-|-----|--------------|
-| http://localhost/ | Web-App |
-| http://localhost/#/data_v2 | Energy Dashboard |
-| http://localhost/api/fronius/ | Proxy-API (via Nginx) |
-| http://localhost:5000/ | Proxy direkt |
 
 ## Update
 
@@ -133,58 +135,22 @@ sudo ./update.sh
 ## Fehlerbehebung
 
 ### Proxy startet nicht
-
 ```bash
-# Logs prüfen
 sudo journalctl -u lademeyer-proxy -n 50
-
-# Manuell testen
 python3 /opt/lademeyer/fronius_proxy.py
 ```
 
 ### Keine Fronius-Daten
-
 ```bash
-# Proxy erreichbar?
 curl http://localhost:5000/health
-
-# Fronius direkt erreichbar?
-curl http://192.168.x.x/solar_api/v1/GetPowerFlowRealtimeData.fcgi
+curl http://192.168.200.51/solar_api/v1/GetPowerFlowRealtimeData.fcgi
 ```
 
 ### Kiosk beenden
-
 ```bash
 lademeyer-stop
-# oder
-Alt + F4
-# oder
-pkill -f chromium
-```
-
-## Architektur
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  RASPBERRY PI                                                           │
-│                                                                         │
-│  ┌────────────────────┐     ┌─────────────────────────────────────────┐│
-│  │ Python Proxy       │     │ Chromium (Kiosk-Modus)                  ││
-│  │ localhost:5000     │◄────│                                         ││
-│  │                    │     │ Flutter Web App                         ││
-│  │ GET /devices       │────►│ - Sankey Energy Flow                    ││
-│  │ POST /devices      │     │ - Fronius Config Widget                 ││
-│  │ DELETE /devices    │     │ - Live-Daten anzeigen                   ││
-│  │ GET /data          │     │                                         ││
-│  └─────────┬──────────┘     └─────────────────────────────────────────┘│
-│            │                                                            │
-│            ▼                                                            │
-│  ┌─────────────────────┐                                                │
-│  │ Fronius Inverter 1  │  192.168.x.100                                │
-│  │ Fronius Inverter 2  │  192.168.x.101   ← Akkumulierte Daten!       │
-│  │ Fronius Inverter 3  │  192.168.x.102                                │
-│  └─────────────────────┘                                                │
-└─────────────────────────────────────────────────────────────────────────┘
+# oder Alt + F4
+# oder pkill -f chromium
 ```
 
 ## Lizenz
@@ -194,4 +160,3 @@ MIT License
 ## Support
 
 Bei Fragen: [Issue erstellen](https://github.com/GumDeveloper/lm-fronius-proxy/issues)
-
