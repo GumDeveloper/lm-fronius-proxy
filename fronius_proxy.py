@@ -544,24 +544,17 @@ def get_device_data(device_id):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# LEGACY ENDPOINT (Einzelabfrage)
+# PROXY ENDPOINT (Flutter Web App kompatibel)
 # ─────────────────────────────────────────────────────────────────────────
 
-@app.route('/fronius', methods=['GET', 'OPTIONS'])
-def fronius_legacy():
-    """Legacy-Endpoint für Einzelabfragen"""
-    if request.method == 'OPTIONS':
-        return '', 200
-    
-    ip = request.args.get('ip')
-    if not ip:
-        return jsonify({
-            'success': False,
-            'error': 'Missing IP parameter'
-        }), 400
-    
-    # Temporäres Device erstellen
+def _proxy_request(ip: str, endpoint: str = 'GetPowerFlowRealtimeData.fcgi'):
+    """Interne Proxy-Funktion fuer Einzelabfragen"""
+    # Temporaeres Device erstellen
     temp_device = FroniusDevice('temp', ip, 'Temp')
+    # Custom endpoint setzen falls angegeben
+    if endpoint != 'GetPowerFlowRealtimeData.fcgi':
+        temp_device.api_endpoint = endpoint
+    
     data = temp_device.fetch_data()
     
     if data:
@@ -572,14 +565,62 @@ def fronius_legacy():
                 'source_ip': ip,
                 'response_time_ms': data.get('response_time_ms'),
                 'timestamp': data.get('timestamp'),
-                'server': 'raspberry-pi'
+                'server': 'raspberry-pi-python-proxy'
             }
         })
     else:
         return jsonify({
             'success': False,
-            'error': 'Connection failed'
+            'error': f'Connection to {ip} failed',
+            'proxy_info': {
+                'source_ip': ip,
+                'attempted_url': f'http://{ip}/solar_api/v1/{endpoint}',
+                'timestamp': datetime.now().isoformat(),
+                'server': 'raspberry-pi-python-proxy'
+            }
         }), 502
+
+
+@app.route('/proxy', methods=['GET', 'OPTIONS'])
+def proxy_endpoint():
+    """
+    Proxy-Endpoint fuer Flutter Web App.
+    Ersetzt den PHP-Proxy (fronius_proxy.php).
+    
+    Verwendung: /proxy?ip=192.168.200.51&endpoint=GetPowerFlowRealtimeData.fcgi
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    ip = request.args.get('ip')
+    endpoint = request.args.get('endpoint', 'GetPowerFlowRealtimeData.fcgi')
+    
+    if not ip:
+        return jsonify({
+            'success': False,
+            'error': 'Missing IP parameter',
+            'usage': '/proxy?ip=192.168.200.51&endpoint=GetPowerFlowRealtimeData.fcgi'
+        }), 400
+    
+    return _proxy_request(ip, endpoint)
+
+
+@app.route('/fronius', methods=['GET', 'OPTIONS'])
+def fronius_legacy():
+    """Legacy-Endpoint fuer Einzelabfragen (Alias fuer /proxy)"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    ip = request.args.get('ip')
+    endpoint = request.args.get('endpoint', 'GetPowerFlowRealtimeData.fcgi')
+    
+    if not ip:
+        return jsonify({
+            'success': False,
+            'error': 'Missing IP parameter'
+        }), 400
+    
+    return _proxy_request(ip, endpoint)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
